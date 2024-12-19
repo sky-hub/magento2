@@ -7,6 +7,8 @@
 namespace Magento\CatalogInventory\Model\Stock;
 
 use Magento\Catalog\Model\ProductFactory;
+use Magento\Catalog\Model\ResourceModel\GetProductTypeById;
+use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\CatalogInventory\Api\Data\StockItemCollectionInterfaceFactory;
 use Magento\CatalogInventory\Api\Data\StockItemInterface;
 use Magento\CatalogInventory\Api\Data\StockItemInterfaceFactory;
@@ -24,7 +26,6 @@ use Magento\Framework\Exception\CouldNotSaveException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Stdlib\DateTime\DateTime;
 use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
-use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Psr\Log\LoggerInterface as PsrLogger;
 
 /**
@@ -95,14 +96,14 @@ class StockItemRepository implements StockItemRepositoryInterface
     protected $stockRegistryStorage;
 
     /**
-     * @var  \Magento\Catalog\Model\ResourceModel\Product\CollectionFactory
-     */
-    protected $productCollectionFactory;
-
-    /**
      * @var PsrLogger
      */
     private $psrLogger;
+
+    /**
+     * @var GetProductTypeById|null
+     */
+    private $getProductTypeById;
 
     /**
      * @param StockConfigurationInterface $stockConfiguration
@@ -119,6 +120,7 @@ class StockItemRepository implements StockItemRepositoryInterface
      * @param CollectionFactory|null $productCollectionFactory
      * @param PsrLogger|null $psrLogger
      * @param StockRegistryStorage|null $stockRegistryStorage
+     * @param GetProductTypeById|null $getProductTypeById
      * @SuppressWarnings(PHPMD.ExcessiveParameterList)
      */
     public function __construct(
@@ -135,7 +137,8 @@ class StockItemRepository implements StockItemRepositoryInterface
         DateTime $dateTime,
         \Magento\Catalog\Model\ResourceModel\Product\CollectionFactory $productCollectionFactory = null,
         PsrLogger $psrLogger = null,
-        ?StockRegistryStorage $stockRegistryStorage = null
+        ?StockRegistryStorage $stockRegistryStorage = null,
+        ?GetProductTypeById $getProductTypeById = null
     ) {
         $this->stockConfiguration = $stockConfiguration;
         $this->stockStateProvider = $stockStateProvider;
@@ -148,12 +151,12 @@ class StockItemRepository implements StockItemRepositoryInterface
         $this->localeDate = $localeDate;
         $this->indexProcessor = $indexProcessor;
         $this->dateTime = $dateTime;
-        $this->productCollectionFactory = $productCollectionFactory ?: ObjectManager::getInstance()
-            ->get(CollectionFactory::class);
         $this->psrLogger = $psrLogger ?: ObjectManager::getInstance()
             ->get(PsrLogger::class);
         $this->stockRegistryStorage = $stockRegistryStorage
             ?? ObjectManager::getInstance()->get(StockRegistryStorage::class);
+        $this->getProductTypeById = $getProductTypeById ?: ObjectManager::getInstance()
+            ->get(GetProductTypeById::class);;
     }
 
     /**
@@ -162,18 +165,9 @@ class StockItemRepository implements StockItemRepositoryInterface
     public function save(StockItemInterface $stockItem)
     {
         try {
-            /** @var \Magento\Catalog\Model\Product $product */
-            $product = $this->productCollectionFactory->create()
-                ->setFlag('has_stock_status_filter')
-                ->addIdFilter($stockItem->getProductId())
-                ->addFieldToSelect('type_id')
-                ->getFirstItem();
-
-            if (!$product->getId()) {
-                return $stockItem;
-            }
-            $typeId = $product->getTypeId() ?: $product->getTypeInstance()->getTypeId();
+            $typeId = $stockItem->getTypeId() ?: $this->getProductTypeById->execute((int) $stockItem->getProductId());
             $isQty = $this->stockConfiguration->isQty($typeId);
+
             if ($isQty) {
                 $this->updateStockStatus($stockItem);
                 // if qty is below notify qty, update the low stock date to today date otherwise set null
