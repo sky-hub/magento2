@@ -169,7 +169,13 @@ class StockItemRepository implements StockItemRepositoryInterface
             $isQty = $this->stockConfiguration->isQty($typeId);
 
             if ($isQty) {
+                $stockItem->setStockStatusChangedAuto(0);
+                if ($stockItem->hasStockStatusChangedAutomaticallyFlag()) {
+                    $stockItem->setStockStatusChangedAuto((int) $stockItem->getStockStatusChangedAutomaticallyFlag());
+                }
+
                 $this->updateStockStatus($stockItem);
+
                 // if qty is below notify qty, update the low stock date to today date otherwise set null
                 $stockItem->setLowStockDate(null);
                 if ($this->stockStateProvider->verifyNotification($stockItem)) {
@@ -202,43 +208,21 @@ class StockItemRepository implements StockItemRepositoryInterface
      */
     private function updateStockStatus(StockItemInterface $stockItem): void
     {
+        if (!$stockItem->getManageStock()) {
+            return;
+        }
+
         $isInStock = $this->stockStateProvider->verifyStock($stockItem);
-        if ($stockItem->getManageStock()) {
-            if (!$isInStock) {
-                if ($stockItem->getIsInStock() === true) {
-                    $stockItem->setIsInStock(false);
-                    $stockItem->setStockStatusChangedAuto(1);
-                }
-            } else {
-                if ($this->hasStockStatusChanged($stockItem)) {
-                    $stockItem->setStockStatusChangedAuto(0);
-                }
-                if ($stockItem->getIsInStock() === false && $stockItem->getStockStatusChangedAuto()) {
-                    $stockItem->setIsInStock(true);
-                }
+        if (!$isInStock) {
+            if ($stockItem->getIsInStock() === true) {
+                $stockItem->setIsInStock(false);
+                $stockItem->setStockStatusChangedAuto(1);
             }
         } else {
-            $stockItem->setStockStatusChangedAuto(0);
-        }
-    }
-
-    /**
-     * Check if stock status has changed
-     *
-     * @param StockItemInterface $stockItem
-     * @return bool
-     */
-    private function hasStockStatusChanged(StockItemInterface $stockItem): bool
-    {
-        if ($stockItem->getItemId()) {
-            try {
-                $existingStockItem = $this->get($stockItem->getItemId());
-                return $existingStockItem->getIsInStock() !== $stockItem->getIsInStock();
-            } catch (NoSuchEntityException $e) {
-                return true;
+            if ($stockItem->getIsInStock() === false && $stockItem->getStockStatusChangedAuto()) {
+                $stockItem->setIsInStock(true);
             }
         }
-        return true;
     }
 
     /**
